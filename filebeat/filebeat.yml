@@ -1,0 +1,15 @@
+filebeat.inputs:
+  - type: filestream
+    id: springboot-json
+    enabled: true
+    paths:
+      - /logs/application.json
+    prospector.scanner.fingerprint.length: 64
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
