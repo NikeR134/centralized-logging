@@ -1,5 +1,15 @@
 services:
+  elasticsearch-data-init:
+    image: busybox:1.36
+    user: root
+    command: ["sh", "-c", "chown -R 1000:0 /data && chmod 0770 /data"]
+    volumes:
+      - ./elasticsearch-data:/data
+
   elasticsearch:
+    depends_on:
+      elasticsearch-data-init:
+        condition: service_completed_successfully
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     environment:
       discovery.type: single-node
@@ -9,11 +19,18 @@ services:
       - "9200:9200"
     volumes:
       - ./elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.13.4
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     ports:
       - "5044:5044"
     volumes:
@@ -22,9 +39,11 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      SERVER_DEFAULTROUTE: /app/dashboards#/view/springboot-logs-dashboard
     ports:
       - "5601:5601"
 
@@ -49,5 +68,16 @@ services:
       - ./logs:/logs:ro
       - ./filebeat-data:/usr/share/filebeat/data
 
-volumes: {}
+  kibana-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      - kibana
+      - filebeat
+    entrypoint: ["sh", "/init/import-saved-objects.sh"]
+    volumes:
+      - ./kibana:/saved-objects:ro
+      - ./scripts/import-saved-objects.sh:/init/import-saved-objects.sh:ro
+    restart: "no"
+
+
 
