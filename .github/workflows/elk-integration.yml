@@ -1,0 +1,41 @@
+name: ELK integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  elk-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package Spring Boot application
+        run: mvn -B clean package -DskipTests
+      - name: Start ELK stack
+        run: docker compose up --build -d
+      - name: Verify log ingestion and Kibana setup
+        run: |
+          curl -fsS "http://localhost:8080/logs/sample?message=github-actions-check"
+          for attempt in $(seq 1 120); do
+            if curl -fsS -H 'Content-Type: application/json' -X POST http://localhost:9200/springboot-*/_search -d '{"query":{"match_phrase":{"message":"github-actions-check"}}}' | jq -e '.hits.total.value > 0' >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 120 ]; then
+              docker compose logs
+              exit 1
+            fi
+            sleep 5
+          done
+          curl -fsS http://localhost:5601/api/data_views/data_view/springboot-logs | jq -e '.data_view.title == "springboot-*"'
+          curl -fsS http://localhost:5601/api/saved_objects/dashboard/springboot-logs-dashboard | jq -e '.attributes.title == "Spring Boot logs"'
+      - name: Stop ELK stack
+        if: always()
+        run: docker compose down
