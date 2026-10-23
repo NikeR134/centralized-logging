@@ -23,13 +23,22 @@ jobs:
         run: docker compose up --build -d
       - name: Verify log ingestion and Kibana setup
         run: |
+          trap 'docker compose logs; exit 1' ERR
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/logs/sample?message=readiness >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              exit 1
+            fi
+            sleep 2
+          done
           curl -fsS "http://localhost:8080/logs/sample?message=github-actions-check"
           for attempt in $(seq 1 120); do
             if curl -fsS -H 'Content-Type: application/json' -X POST http://localhost:9200/springboot-*/_search -d '{"query":{"match_phrase":{"message":"github-actions-check"}}}' | jq -e '.hits.total.value > 0' >/dev/null; then
               break
             fi
             if [ "$attempt" -eq 120 ]; then
-              docker compose logs
               exit 1
             fi
             sleep 5
@@ -39,3 +48,5 @@ jobs:
       - name: Stop ELK stack
         if: always()
         run: docker compose down
+
+
