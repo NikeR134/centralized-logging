@@ -43,10 +43,17 @@ jobs:
             fi
             sleep 5
           done
-          curl -fsS http://localhost:5601/api/data_views/data_view/springboot-logs | jq -e '.data_view.title == "springboot-*"'
-          curl -fsS http://localhost:5601/api/saved_objects/dashboard/springboot-logs-dashboard | jq -e '.attributes.title == "Spring Boot logs"'
+          for attempt in $(seq 1 120); do
+            view=$(curl -fsS http://localhost:5601/api/data_views/data_view/springboot-logs 2>/dev/null || true)
+            dashboard=$(curl -fsS http://localhost:5601/api/saved_objects/dashboard/springboot-logs-dashboard 2>/dev/null || true)
+            if printf '%s' "$view" | jq -e '.data_view.title == "springboot-*"' >/dev/null 2>&1 && printf '%s' "$dashboard" | jq -e '.attributes.title == "Spring Boot logs"' >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 120 ]; then
+              exit 1
+            fi
+            sleep 5
+          done
       - name: Stop ELK stack
         if: always()
         run: docker compose down
-
-
